@@ -37,25 +37,31 @@ jobs:
         run: bash tests/e2e.sh
 
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false # 一个目标失败不影响其余目标产出
       matrix:
         include:
+          # platform = 产物文件名（对用户友好）；target = Rust 目标三元组（编译用）
           - target: x86_64-unknown-linux-musl # 通用 Linux 服务器（静态链接）
+            platform: linux-amd64
             os: ubuntu-latest
             zig: true
           - target: aarch64-unknown-linux-musl # 树莓派 64 位系统 / ARM 云主机
+            platform: linux-arm64
             os: ubuntu-latest
             zig: true
           - target: armv7-unknown-linux-musleabihf # 树莓派 32 位系统（armhf；纯 musl 目标无预编译 std）
+            platform: linux-armv7
             os: ubuntu-latest
             zig: true
           - target: x86_64-pc-windows-msvc # Windows
+            platform: windows-amd64
             os: windows-latest
             zig: false
           - target: aarch64-apple-darwin # macOS Apple Silicon
+            platform: macos-arm64
             os: macos-latest
             zig: false
     steps:
@@ -97,15 +103,15 @@ jobs:
           cp "target/${{ matrix.target }}/release/hummingbird$EXT" stage/
           cp LICENSE README.md stage/
           if [ -n "$EXT" ]; then
-            7z a "hummingbird-$VERSION-${{ matrix.target }}.zip" stage/*
+            7z a "hummingbird-$VERSION-${{ matrix.platform }}.zip" stage/*
           else
-            tar -czf "hummingbird-$VERSION-${{ matrix.target }}.tar.gz" -C stage hummingbird LICENSE README.md
+            tar -czf "hummingbird-$VERSION-${{ matrix.platform }}.tar.gz" -C stage hummingbird LICENSE README.md
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hummingbird-${{ matrix.target }}
+          name: hummingbird-${{ matrix.platform }}
           path: |
             hummingbird-*.tar.gz
             hummingbird-*.zip
