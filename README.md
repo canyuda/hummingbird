@@ -4,6 +4,8 @@
 
 **为小内存设备而生的多渠道消息推送网关**
 
+[![Release](https://img.shields.io/github/v/release/canyuda/hummingbird)](https://github.com/canyuda/hummingbird/releases/latest)
+[![CI](https://github.com/canyuda/hummingbird/actions/workflows/build.yml/badge.svg)](https://github.com/canyuda/hummingbird/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Idle RSS](https://img.shields.io/badge/idle%20RSS-7.5_MB-2ea44f)
 ![Single Binary](https://img.shields.io/badge/single%20binary-3_MB-blue)
@@ -54,7 +56,7 @@
 
 ## 🚀 快速开始
 
-**1. 构建并运行**（仓库已带前端构建产物，直接编译后端即可；预编译二进制将发布在 Releases 页）
+**1. 构建并运行**（仓库已带前端构建产物，直接编译后端即可；也可从 [Releases](https://github.com/canyuda/hummingbird/releases/latest) 下载预编译二进制：linux-amd64 / arm64 / armv7、windows-amd64、macos-arm64）
 
 ```bash
 cargo build --release

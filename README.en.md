@@ -4,6 +4,8 @@
 
 **A multi-channel notification gateway that sips memory**
 
+[![Release](https://img.shields.io/github/v/release/canyuda/hummingbird)](https://github.com/canyuda/hummingbird/releases/latest)
+[![CI](https://github.com/canyuda/hummingbird/actions/workflows/build.yml/badge.svg)](https://github.com/canyuda/hummingbird/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Idle RSS](https://img.shields.io/badge/idle%20RSS-7.5_MB-2ea44f)
 ![Single Binary](https://img.shields.io/badge/single%20binary-3_MB-blue)
@@ -54,7 +56,7 @@ Each channel can use its own HTTP proxy (e.g. Telegram via a local [mihomo](http
 
 ## 🚀 Quick Start
 
-**1. Build and run** (the repo ships prebuilt frontend assets, so building the backend is enough; precompiled binaries will be available on the Releases page)
+**1. Build and run** (the repo ships prebuilt frontend assets, so building the backend is enough; prebuilt binaries are on the [Releases](https://github.com/canyuda/hummingbird/releases/latest) page: linux-amd64 / arm64 / armv7, windows-amd64, macos-arm64)
 
 ```bash
 cargo build --release
