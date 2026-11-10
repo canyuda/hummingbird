@@ -140,10 +140,9 @@ const testChannel = async (c) => {
     notify(r.ok ? `✅ 渠道正常（${r.cost_ms}ms${r.via_proxy ? '，经代理' : ''}）` : `❌ ${r.error}`)
   } catch (e) { notify('❌ ' + e.message) }
 }
-const delChannel = async (c) => {
-  if (!confirm(`删除渠道「${c.name}」？`)) return
-  await api('DELETE', `/api/channels/${c.id}`); notify('已删除'); await loadChannels()
-}
+const delChannel = (c) => askConfirm('删除渠道',
+  `确定删除渠道「${c.name}」？已绑定它的任务推送时会失败。`,
+  async () => { await api('DELETE', `/api/channels/${c.id}`); notify('已删除'); await loadChannels() })
 
 /* ---------------- 模板 ---------------- */
 const templates = ref([])
@@ -180,11 +179,12 @@ const saveTemplate = async () => {
     notify('模板已保存'); modal.value = null; await loadTemplates()
   } catch (e) { notify('保存失败：' + e.message) }
 }
-const delTemplate = async (t) => {
-  if (!confirm(`删除模板「${t.name}」？`)) return
-  try { await api('DELETE', `/api/templates/${t.id}`); notify('已删除'); await loadTemplates() }
-  catch (e) { notify('删除失败：' + e.message) }
-}
+const delTemplate = (t) => askConfirm('删除模板',
+  `确定删除模板「${t.name}」？被任务绑定的模板会被服务端拒绝删除。`,
+  async () => {
+    try { await api('DELETE', `/api/templates/${t.id}`); notify('已删除'); await loadTemplates() }
+    catch (e) { notify('删除失败：' + e.message) }
+  })
 
 /* ---------------- 任务 ---------------- */
 const tasks = ref([])
@@ -267,10 +267,9 @@ const sendTest = async () => {
 const confirmState = reactive({ show: false, title: '', message: '', onOk: null })
 const askConfirm = (title, message, onOk) => Object.assign(confirmState, { show: true, title, message, onOk })
 const runConfirm = async () => { const f = confirmState.onOk; confirmState.show = false; await f?.() }
-const delTask = async (t) => {
-  if (!confirm(`删除任务「${t.name}」？`)) return
-  await api('DELETE', `/api/tasks/${t.id}`); notify('已删除'); await loadTasks()
-}
+const delTask = (t) => askConfirm('删除任务',
+  `确定删除任务「${t.name}」？其 token 将立即失效，使用它的脚本会开始收到 401。`,
+  async () => { await api('DELETE', `/api/tasks/${t.id}`); notify('已删除'); await loadTasks() })
 const curlExample = computed(() => {
   if (!newTaskToken.value) return ''
   return `curl -H "Authorization: Bearer ${newTaskToken.value}" \\\n  http://<pi>:8080/api/push \\\n  -d '{"template":"模板名","variables":{"key":"value"}}'`
