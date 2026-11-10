@@ -77,6 +77,30 @@ say "渠道测试按钮（兼连通性验证）"
 R=$(J -X POST $BASE/api/channels/$CH_ID/test)
 assert_contains "$R" '"ok":true' "webhook 渠道连通"
 
+say "渠道编辑：脱敏占位符不得覆盖真实凭据"
+R=$(J -X POST $BASE/api/channels -d '{"type":"feishu_bot","name":"脱敏验证","config":{"webhook":"http://127.0.0.1:'"$HOOK_PORT"'/hook?key=abc123","secret":"real-secret-123"}}')
+CH2=$(echo "$R" | grep -o '[0-9]*' | head -1)
+assert_contains "$R" '"id":' "创建带 secret 的渠道"
+# 模拟"打开编辑不改内容直接保存"：把列表返回的打码 config 原样 PUT 回去
+MASKED=$(J $BASE/api/channels | python3 -c "import json,sys
+chs = json.load(sys.stdin)['channels']
+print(json.dumps({'config': next(c['config'] for c in chs if c['id'] == $CH2)}))")
+J -X PUT $BASE/api/channels/$CH2 -d "$MASKED" > /dev/null
+# 直接查库验证真实值未被占位符覆盖
+python3 - "$TMP/hb.db" "$CH2" > "$TMP/secretcheck" <<'PYEOF'
+import sqlite3, json, sys
+db = sqlite3.connect(sys.argv[1])
+cfg = json.loads(db.execute("SELECT config_json FROM channels WHERE id=?", (sys.argv[2],)).fetchone()[0])
+print(cfg.get("secret", ""))
+print(cfg.get("webhook", ""))
+PYEOF
+SECRET_NOW=$(sed -n 1p "$TMP/secretcheck"); HOOK_NOW=$(sed -n 2p "$TMP/secretcheck")
+[ "$SECRET_NOW" = "real-secret-123" ] && ok "secret 保留原值" || bad "secret 被占位符覆盖（got: $SECRET_NOW）"
+[ "$HOOK_NOW" = "http://127.0.0.1:$HOOK_PORT/hook?key=abc123" ] && ok "webhook 查询串保留原值" || bad "webhook 被覆盖（got: $HOOK_NOW）"
+R=$(J -X POST $BASE/api/channels/$CH2/test)
+assert_contains "$R" '"ok":true' "脱敏回写后渠道仍可用"
+J -X DELETE $BASE/api/channels/$CH2 > /dev/null
+
 say "模板 CRUD 与渲染"
 R=$(J -X POST $BASE/api/templates -d '{"name":"巡检","title_tpl":"巡检:{{host}}","body_tpl":"主机 {{host}} 状态 {{status}}","variables":[{"key":"host","desc":"主机名","default":"pi"},{"key":"status","desc":"状态","default":"ok"}]}')
 assert_contains "$R" '"id":' "创建模板"

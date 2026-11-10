@@ -87,8 +87,51 @@ pub fn channels_update(state: &AppState, id: i64, ctx: &ReqCtx) -> Resp {
     if let Some(name) = ctx.body["name"].as_str() {
         conn.execute("UPDATE channels SET name = ?1 WHERE id = ?2", params![name, id]).unwrap();
     }
-    if let Some(config) = ctx.body.get("config").map(|c| c.to_string()) {
-        conn.execute("UPDATE channels SET config_json = ?1 WHERE id = ?2", params![config, id]).unwrap();
+    if let Some(config) = ctx.body.get("config") {
+        // 脱敏占位符保护：列表接口把 secret 类字段打码为 "***"、webhook 查询串打码为 "?***"，
+        // 前端"打开编辑不改内容直接保存"会把占位符原样传回——命中占位符则保留库中原值。
+        // 用户真想改密钥时输入新值即可；只有精确等于占位符才视为"未改动"。
+        let old_cfg: Option<Value> = conn
+            .query_row(
+                "SELECT config_json FROM channels WHERE id = ?1",
+                params![id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
+        let mut merged = config.clone();
+        if let (Some(new_obj), Some(old)) = (merged.as_object_mut(), &old_cfg) {
+            for k in SECRET_KEYS {
+                let masked = new_obj.get(*k).and_then(|v| v.as_str()) == Some("***");
+                if masked {
+                    match old.get(*k) {
+                        Some(v) if !v.is_null() => {
+                            new_obj.insert(k.to_string(), v.clone());
+                        }
+                        _ => {
+                            new_obj.remove(*k);
+                        }
+                    }
+                }
+            }
+            let hook_masked = new_obj
+                .get("webhook")
+                .and_then(|v| v.as_str())
+                .map(|s| s.ends_with("?***"))
+                .unwrap_or(false);
+            if hook_masked {
+                if let Some(old_hook) = old.get("webhook") {
+                    if !old_hook.is_null() {
+                        new_obj.insert("webhook".to_string(), old_hook.clone());
+                    }
+                }
+            }
+        }
+        conn.execute(
+            "UPDATE channels SET config_json = ?1 WHERE id = ?2",
+            params![merged.to_string(), id],
+        )
+        .unwrap();
     }
     if let Some(enabled) = ctx.body["enabled"].as_bool() {
         conn.execute("UPDATE channels SET enabled = ?1 WHERE id = ?2", params![enabled as i64, id]).unwrap();
