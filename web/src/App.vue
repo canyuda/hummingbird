@@ -251,7 +251,7 @@ onMounted(async () => {
            class="nav-item" :class="{ active: tab === t }" @click="switchTab(t)">
         {{ { overview: '概览', channels: '渠道', templates: '模板', tasks: '任务', logs: '推送日志', settings: '设置' }[t] }}
       </div>
-      <div class="nav-item" style="margin-top:18px" @click="doLogout">退出登录</div>
+      <div class="nav-item" style="margin-top:auto" @click="doLogout">退出登录</div>
     </aside>
 
     <main class="main">
