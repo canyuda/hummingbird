@@ -8,3 +8,5 @@ web/node_modules/
 *.db-shm
 # 交付二进制（本地保存，不入库）
 bin/
+# 本地前端开发代理目标（私人环境地址，不入库）
+web/.env.local
