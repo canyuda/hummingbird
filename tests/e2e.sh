@@ -150,6 +150,8 @@ R=$(J "$BASE/api/messages?status=failed")
 assert_contains "$R" '"total":0' "失败过滤为空"
 R=$(J $BASE/api/overview)
 assert_contains "$R" '"today_total":' "概览统计返回"
+assert_contains "$R" '"days7"' "概览含近7天逐日数据"
+assert_contains "$R" '"channels7"' "概览含渠道分布数据"
 
 say "设置（站点样式 + 保留天数）"
 R=$(J -X PUT $BASE/api/settings -d '{"site_title":"我的蜂鸟","theme_color":"#ff0000"}')

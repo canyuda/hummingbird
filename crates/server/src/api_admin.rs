@@ -611,7 +611,7 @@ pub fn messages_list(state: &AppState, ctx: &ReqCtx) -> Resp {
     (200, json!({"messages": rows, "total": total, "page": page}), None)
 }
 
-/// 概览统计（前端仪表盘用）：今日总数 / 成功 / 失败
+/// 概览统计（前端仪表盘用）：今日总数 / 成功 / 失败 + 近 7 天逐日量与渠道分布（UTC 口径）
 pub fn overview(state: &AppState) -> Resp {
     let conn = state.db.0.lock().unwrap();
     let (total, ok): (i64, i64) = conn
@@ -624,6 +624,48 @@ pub fn overview(state: &AppState) -> Resp {
         .unwrap();
     let channels: i64 = conn.query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0)).unwrap();
     let tasks: i64 = conn.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap();
+
+    // 近 7 天逐日（含今日）；时间统一 UTC（chrono 仅 UTC 的设计口径）
+    let mut days7 = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT date(created_at) d, COUNT(*), SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END)
+                 FROM push_logs
+                 WHERE created_at >= date('now', '-6 days', 'start of day')
+                 GROUP BY d ORDER BY d",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(json!({"date": r.get::<_, String>(0)?, "total": r.get::<_, i64>(1)?,
+                          "ok": r.get::<_, i64>(2)?}))
+            })
+            .unwrap();
+        for row in rows {
+            days7.push(row.unwrap());
+        }
+    }
+
+    // 近 7 天渠道分布 TOP8（饼图用）
+    let mut channels7 = Vec::new();
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT COALESCE(c.name, '未知') name, COUNT(*) n
+                 FROM push_logs p LEFT JOIN channels c ON c.id = p.channel_id
+                 WHERE p.created_at >= date('now', '-6 days', 'start of day')
+                 GROUP BY p.channel_id ORDER BY n DESC LIMIT 8",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |r| Ok(json!({"name": r.get::<_, String>(0)?, "count": r.get::<_, i64>(1)?})))
+            .unwrap();
+        for row in rows {
+            channels7.push(row.unwrap());
+        }
+    }
+
     (200, json!({"today_total": total, "today_ok": ok, "today_failed": total - ok,
-                 "channels": channels, "tasks": tasks}), None)
+                 "channels": channels, "tasks": tasks, "days7": days7, "channels7": channels7}), None)
 }
