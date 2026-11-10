@@ -11,7 +11,7 @@ const modal = ref(null)              // 当前弹窗：null | 'channel' | 'templ
 
 const notify = (msg) => { toast.value = msg; setTimeout(() => (toast.value = ''), 2500) }
 const closeModal = () => { modal.value = null }
-const onKeydown = (e) => { if (e.key === 'Escape') { modal.value = null; newTaskToken.value = '' } }
+const onKeydown = (e) => { if (e.key === 'Escape') { modal.value = null; newTaskToken.value = ''; confirmState.show = false } }
 
 /* ---------------- API 封装 ---------------- */
 const api = async (method, path, body) => {
@@ -224,23 +224,49 @@ const saveTask = async () => {
     modal.value = null; await loadTasks()
   } catch (e) { notify('保存失败：' + e.message) }
 }
-const regenToken = async (t) => {
-  if (!confirm(`重置「${t.name}」的 token？旧 token 立即失效`)) return
-  const r = await api('POST', `/api/tasks/${t.id}/token/regenerate`)
-  newTaskToken.value = r.token; await loadTasks()
-}
+const regenToken = (t) => askConfirm('重置 token',
+  `任务「${t.name}」的旧 token 将立即失效，使用它的脚本会开始收到 401。确定重置？`,
+  async () => {
+    const r = await api('POST', `/api/tasks/${t.id}/token/regenerate`)
+    newTaskToken.value = r.token; await loadTasks()
+  })
 const toggleTask = async (t) => {
   try { await api('PUT', `/api/tasks/${t.id}`, { enabled: !t.enabled }); await loadTasks() }
   catch (e) { notify('操作失败：' + e.message) }
 }
-const testTask = async (t) => {
-  notify('按绑定发送测试中…')
-  try {
-    const r = await api('POST', `/api/tasks/${t.id}/test`)
-    const ok = r.results.every((x) => x.status === 'ok')
-    notify(ok ? '✅ 全部渠道正常' : '❌ ' + (r.results.find((x) => x.status !== 'ok') || {}).error)
-  } catch (e) { notify('❌ ' + e.message) }
+/* 任务测试弹窗：选模板 + 填测试变量，结果留在弹窗内，可调参反复重测 */
+const testModal = reactive({ task: null, template_id: null, vars: {}, results: null, sending: false })
+const testTplDef = computed(() => templates.value.find((x) => x.id === testModal.template_id))
+const resetTestVars = () => {
+  const v = {}
+  for (const item of testTplDef.value?.variables || []) v[item.key] = item.default || ''
+  testModal.vars = v
 }
+const openTest = (t) => {
+  Object.assign(testModal, {
+    task: t, template_id: t.bindings[0] ? t.bindings[0].template_id : null,
+    vars: {}, results: null, sending: false,
+  })
+  resetTestVars()
+  modal.value = 'test'
+}
+const sendTest = async () => {
+  if (!testModal.template_id) return notify('请选择模板')
+  const variables = {}
+  for (const [k, v] of Object.entries(testModal.vars)) if (v !== '') variables[k] = v
+  testModal.sending = true; testModal.results = null
+  try {
+    const r = await api('POST', `/api/tasks/${testModal.task.id}/test`,
+      { template_id: testModal.template_id, variables })
+    testModal.results = r.results
+    notify(r.results.every((x) => x.status === 'ok') ? '✅ 全部渠道正常' : '❌ 存在失败渠道，见弹窗结果')
+  } catch (e) { notify('❌ ' + e.message) }
+  testModal.sending = false
+}
+/* 通用确认弹窗（替代浏览器原生 confirm） */
+const confirmState = reactive({ show: false, title: '', message: '', onOk: null })
+const askConfirm = (title, message, onOk) => Object.assign(confirmState, { show: true, title, message, onOk })
+const runConfirm = async () => { const f = confirmState.onOk; confirmState.show = false; await f?.() }
 const delTask = async (t) => {
   if (!confirm(`删除任务「${t.name}」？`)) return
   await api('DELETE', `/api/tasks/${t.id}`); notify('已删除'); await loadTasks()
@@ -490,7 +516,7 @@ onMounted(async () => {
                 <td class="muted" style="white-space:nowrap">{{ t.token_last_used_at || '未使用' }}</td>
                 <td>
                   <div class="row" style="justify-content:flex-end">
-                    <button class="ghost" @click="testTask(t)">测试</button>
+                    <button class="ghost" @click="openTest(t)">测试</button>
                     <button class="ghost" @click="regenToken(t)">重置 token</button>
                     <button class="ghost" @click="editTask(t)">编辑</button>
                     <button class="danger" @click="delTask(t)">删除</button>
@@ -678,6 +704,59 @@ onMounted(async () => {
       <div class="modal-foot">
         <button class="ghost" @click="copyToken">复制 token</button>
         <button @click="newTaskToken = ''">我已保存，关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 任务测试弹窗：选模板 + 填测试变量，结果留在弹窗内 -->
+  <div v-if="modal === 'test'" class="overlay" @click.self="closeModal">
+    <div class="modal">
+      <div class="modal-head"><h3>🧪 测试任务 · {{ testModal.task?.name }}</h3>
+        <button class="modal-x" @click="closeModal">✕</button></div>
+      <div class="modal-body">
+        <label class="field">模板
+          <select v-model="testModal.template_id" @change="resetTestVars" style="max-width:280px">
+            <option v-for="b in testModal.task?.bindings" :key="b.template_id" :value="b.template_id">{{ b.template_name }}</option>
+          </select>
+        </label>
+        <div v-if="testTplDef?.variables?.length" style="margin-top:12px">
+          <span class="muted">测试变量（留空用模板默认值）</span>
+          <div class="form-grid" style="margin-top:8px">
+            <label v-for="v in testTplDef.variables" :key="v.key" class="field">
+              {{ v.key }}{{ v.desc ? '（' + v.desc + '）' : '' }}
+              <input v-model="testModal.vars[v.key]" :placeholder="v.default ? '默认 ' + v.default : ''" />
+            </label>
+          </div>
+        </div>
+        <p v-else class="muted" style="margin-top:12px">该模板未定义变量</p>
+        <div v-if="testModal.results" style="margin-top:14px">
+          <span class="muted">发送结果</span>
+          <div v-for="(r, i) in testModal.results" :key="i" class="binding" style="margin-top:8px">
+            <div class="row">
+              <b style="font-size:13.5px">{{ r.channel }}</b>
+              <span class="tag" v-if="r.status === 'ok'">ok</span><span class="tag red" v-else>failed</span>
+              <span class="muted" style="margin-left:auto">{{ r.cost_ms }}ms{{ r.via_proxy ? ' · 经代理' : '' }}</span>
+            </div>
+            <p v-if="r.error" class="muted" style="margin:6px 0 0;word-break:break-all">{{ r.error }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost" @click="closeModal">关闭</button>
+        <button :disabled="testModal.sending" @click="sendTest">{{ testModal.sending ? '发送中…' : '发送测试' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用确认弹窗（替代浏览器 confirm） -->
+  <div v-if="confirmState.show" class="overlay" @click.self="confirmState.show = false">
+    <div class="modal" style="width:400px">
+      <div class="modal-head"><h3>{{ confirmState.title }}</h3>
+        <button class="modal-x" @click="confirmState.show = false">✕</button></div>
+      <div class="modal-body"><p style="margin:0;line-height:1.8">{{ confirmState.message }}</p></div>
+      <div class="modal-foot">
+        <button class="ghost" @click="confirmState.show = false">取消</button>
+        <button class="danger" style="background:var(--danger);border-color:var(--danger);color:#fff" @click="runConfirm">确认</button>
       </div>
     </div>
   </div>

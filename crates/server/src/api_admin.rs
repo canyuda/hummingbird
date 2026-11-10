@@ -466,17 +466,21 @@ pub fn tasks_regenerate(state: &AppState, id: i64) -> Resp {
 }
 
 /// 按绑定逐模板逐渠道发测试：模板变量用默认值渲染
-pub fn tasks_test(state: &AppState, id: i64) -> Resp {
+pub fn tasks_test(state: &AppState, id: i64, ctx: &ReqCtx) -> Resp {
+    // 可选请求体 {"template_id": N, "variables": {...}}：只测该绑定、测试变量覆盖默认值
+    //（前端测试弹窗用）；不带请求体保持原行为——逐绑定按模板默认变量全量测试
+    let filter_tpl: Option<i64> = ctx.body["template_id"].as_i64();
+    let test_vars = ctx.body.get("variables").cloned().unwrap_or(json!({}));
     let rows = {
         let conn = state.db.0.lock().unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT t.title_tpl, t.body_tpl, t.variables_json, b.channel_ids_json, t.name
                  FROM task_bindings b JOIN templates t ON t.id = b.template_id
-                 WHERE b.task_id = ?1",
+                 WHERE b.task_id = ?1 AND (?2 IS NULL OR b.template_id = ?2)",
             )
             .unwrap();
-        stmt.query_map(params![id], |r| {
+        stmt.query_map(params![id, filter_tpl], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -490,12 +494,21 @@ pub fn tasks_test(state: &AppState, id: i64) -> Resp {
         .collect::<Vec<_>>()
     };
     if rows.is_empty() {
-        return err(400, "task has no bindings");
+        return if filter_tpl.is_some() {
+            err(403, "template not bound to this task")
+        } else {
+            err(400, "task has no bindings")
+        };
     }
     let conn = state.db.0.lock().unwrap();
     let mut results = Vec::new();
     for (title_tpl, body_tpl, vars_json, channel_ids_json, tpl_name) in rows {
-        let vars = template_defaults(&vars_json);
+        let mut vars = template_defaults(&vars_json);
+        if let (Some(target), Some(src)) = (vars.as_object_mut(), test_vars.as_object()) {
+            for (k, v) in src {
+                target.insert(k.clone(), v.clone());
+            }
+        }
         let msg = OutMessage {
             title: crate::tmpl::render(&title_tpl, &vars),
             body: crate::tmpl::render(&body_tpl, &vars),

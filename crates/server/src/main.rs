@@ -208,7 +208,7 @@ fn admin_dispatch(m: &str, path: &str, ctx: &ReqCtx, state: &Arc<AppState>) -> R
         return match (m, action) {
             ("PUT", "") => api_admin::tasks_update(state, id, ctx),
             ("DELETE", "") => api_admin::tasks_delete(state, id),
-            ("POST", "test") => api_admin::tasks_test(state, id),
+            ("POST", "test") => api_admin::tasks_test(state, id, ctx),
             ("POST", "token/regenerate") => api_admin::tasks_regenerate(state, id),
             _ => err(400, "bad path"),
         };

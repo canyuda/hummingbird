@@ -166,6 +166,12 @@ assert_contains "$R" 'invalid task token' "旧 token 失效"
 R=$(curl -s -X POST $BASE/api/push -H "Authorization: Bearer $NEW_TOKEN" -d '{"template":"巡检"}')
 assert_contains "$R" '"ok":true' "新 token 可用"
 
+say "任务测试：指定模板与测试变量"
+R=$(J -X POST $BASE/api/tasks/1/test -d "{\"template_id\":$TPL_ID,\"variables\":{\"host\":\"ci\"}}")
+assert_contains "$R" '"status":"ok"' "指定模板测试成功"
+R=$(J -X POST $BASE/api/tasks/1/test -d '{"template_id":999}')
+assert_contains "$R" 'not bound' "未绑定模板测试被拒"
+
 say "推送日志与概览"
 R=$(J "$BASE/api/messages")
 assert_contains "$R" '"task":"运维通知"' "日志记录任务名"
