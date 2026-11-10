@@ -1,0 +1,120 @@
+# 构建打包：push/PR 跑测试，打 tag v* 时矩阵构建并把压缩包发布到 GitHub Release。
+# 五目标：Linux musl 三件套（zigbuild 交叉编译）+ Windows MSVC + macOS arm64。
+# web/dist 已入库，前端产物随源码走，CI 无需 npm。
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # tag 构建时创建 Release 并上传产物
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # 只取消被新提交取代的 PR 运行
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Unit tests
+        run: cargo test
+
+      # e2e.sh 自建 debug 二进制并起本地服务+webhook 接收器（cargo/curl/python3/lsof 均为 runner 预装）
+      - name: End-to-end tests
+        run: bash tests/e2e.sh
+
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # 一个目标失败不影响其余目标产出
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl # 通用 Linux 服务器（静态链接）
+            os: ubuntu-latest
+            zig: true
+          - target: aarch64-unknown-linux-musl # 树莓派 64 位系统 / ARM 云主机
+            os: ubuntu-latest
+            zig: true
+          - target: armv7-unknown-linux-musl # 树莓派 32 位系统
+            os: ubuntu-latest
+            zig: true
+          - target: x86_64-pc-windows-msvc # Windows
+            os: windows-latest
+            zig: false
+          - target: aarch64-apple-darwin # macOS Apple Silicon
+            os: macos-latest
+            zig: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # zigbuild 官方推荐的快速安装路径（预编译 wheel，免源码编译）
+      - name: Install cargo-zigbuild
+        if: matrix.zig
+        run: python3 -m pip install --user cargo-zigbuild ziglang
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.zig }}" = "true" ]; then
+            cargo zigbuild --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      # tag 推送时用 tag 名（v0.1.0），否则用分支名/PR 号/短 SHA
+      - name: Compute version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME//\//_}" >> "$GITHUB_ENV"
+
+      - name: Package
+        shell: bash
+        run: |
+          EXT=""
+          [ "${{ matrix.os }}" = "windows-latest" ] && EXT=".exe"
+          mkdir -p stage
+          cp "target/${{ matrix.target }}/release/hummingbird$EXT" stage/
+          cp LICENSE README.md stage/
+          if [ -n "$EXT" ]; then
+            7z a "hummingbird-$VERSION-${{ matrix.target }}.zip" stage/*
+          else
+            tar -czf "hummingbird-$VERSION-${{ matrix.target }}.tar.gz" -C stage hummingbird LICENSE README.md
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hummingbird-${{ matrix.target }}
+          path: |
+            hummingbird-*.tar.gz
+            hummingbird-*.zip
+
+      # 仅打 tag v* 时把产物挂到 GitHub Release
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            hummingbird-*.tar.gz
+            hummingbird-*.zip

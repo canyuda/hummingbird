@@ -1,0 +1,38 @@
+[package]
+name = "hummingbird"
+version = "0.1.0"
+edition = "2021"
+description = "Hummingbird - minimal multi-channel message push gateway"
+license = "MIT"
+
+[[bin]]
+name = "hummingbird"
+path = "src/main.rs"
+
+[dependencies]
+# Web 层：同步技术栈，无 async 运行时（设计 §2）
+tiny_http = "0.12"
+# HTTP 客户端：同步、rustls、socks 代理（Telegram 走本机 mihomo 用）
+ureq = { version = "2", features = ["socks-proxy", "json"] }
+# SQLite：bundled 编译内置，单连接 + Mutex
+rusqlite = { version = "0.32", features = ["bundled"] }
+# 序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 认证：argon2id 调参 m=8MiB（设计 §2），sha2 做 token 哈希
+argon2 = "0.5"
+sha2 = "0.10"
+# 钉钉机器人加签
+hmac = "0.12"
+base64 = "0.22"
+# token / 密码随机生成
+rand = "0.8"
+# 时间处理（仅 UTC，不引入本地时区机制）
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# 内嵌 Web 管理台（静态资源编译进二进制）
+rust-embed = { version = "8", features = ["compression"] }
+# GET 一行流推送端点的查询串解析
+form_urlencoded = "1"
+# 轻量日志输出到 stdout/stderr
+log = "0.4"
+env_logger = "0.11"

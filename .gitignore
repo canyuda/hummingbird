@@ -1,0 +1,10 @@
+# 构建产物（二进制与缓存）
+target/
+# 前端依赖（dist 构建产物保留入库，保证 cargo build 开箱即用）
+web/node_modules/
+# 运行期数据，绝不入库
+*.db
+*.db-wal
+*.db-shm
+# 交付二进制（本地保存，不入库）
+bin/
