@@ -44,26 +44,27 @@ jobs:
       matrix:
         include:
           # platform = 产物文件名（对用户友好）；target = Rust 目标三元组（编译用）
-          - target: x86_64-unknown-linux-musl # 通用 Linux 服务器（静态链接）
-            platform: linux-amd64
-            os: ubuntu-latest
-            zig: true
+          # ⚠️ 暂时只构建 linux-arm64（Pi 64 位）；其余四个目标临时关闭，需恢复时取消注释
+          # - target: x86_64-unknown-linux-musl # 通用 Linux 服务器（静态链接）
+          #   platform: linux-amd64
+          #   os: ubuntu-latest
+          #   zig: true
           - target: aarch64-unknown-linux-musl # 树莓派 64 位系统 / ARM 云主机
             platform: linux-arm64
             os: ubuntu-latest
             zig: true
-          - target: armv7-unknown-linux-musleabihf # 树莓派 32 位系统（armhf；纯 musl 目标无预编译 std）
-            platform: linux-armv7
-            os: ubuntu-latest
-            zig: true
-          - target: x86_64-pc-windows-msvc # Windows
-            platform: windows-amd64
-            os: windows-latest
-            zig: false
-          - target: aarch64-apple-darwin # macOS Apple Silicon
-            platform: macos-arm64
-            os: macos-latest
-            zig: false
+          # - target: armv7-unknown-linux-musleabihf # 树莓派 32 位系统（armhf；纯 musl 目标无预编译 std）
+          #   platform: linux-armv7
+          #   os: ubuntu-latest
+          #   zig: true
+          # - target: x86_64-pc-windows-msvc # Windows
+          #   platform: windows-amd64
+          #   os: windows-latest
+          #   zig: false
+          # - target: aarch64-apple-darwin # macOS Apple Silicon
+          #   platform: macos-arm64
+          #   os: macos-latest
+          #   zig: false
     steps:
       - uses: actions/checkout@v4
 
@@ -139,7 +140,10 @@ jobs:
         shell: bash
         run: |
           cd assets
-          sha256sum hummingbird-*.tar.gz hummingbird-*.zip > checksums.txt
+          # nullglob：被临时关闭的目标不产生文件时，跳过而非报错（bash -e 下裸 glob 会失败）
+          shopt -s nullglob
+          files=(hummingbird-*.tar.gz hummingbird-*.zip)
+          if [ ${#files[@]} -gt 0 ]; then sha256sum "${files[@]}" > checksums.txt; fi
           {
             echo '## 升级'
             echo
