@@ -237,6 +237,8 @@ code { background: #f1f5f9; padding: 2px 6px; border-radius: 6px; font-size: 12p
 .login-box { width: 360px; max-width: 100%; padding: 30px; }
 .login-box h1 { font-size: 21px; margin-bottom: 4px; }
 .login-box .muted { margin-bottom: 18px; }
+.splash { font-size: 34px; animation: splash-pulse 1s ease-in-out infinite; }
+@keyframes splash-pulse { 50% { opacity: .35; } }
 
 /* 窄屏微调 */
 @media (max-width: 720px) {

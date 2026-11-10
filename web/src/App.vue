@@ -3,7 +3,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 
 /* ---------------- 基础状态 ---------------- */
-const me = ref(null)                 // 当前登录信息
+const me = ref(undefined)           // undefined=会话探测中（刷新时不闪登录页），null=未登录，对象=已登录
 const tab = ref('overview')          // 当前页签
 const toast = ref('')                // 全局提示
 const settings = reactive({ site_title: '', site_slogan: '', theme_color: '' })
@@ -318,7 +318,7 @@ onMounted(async () => {
   </div>
 
   <!-- 登录页 -->
-  <div v-else-if="!me" class="login-wrap">
+  <div v-else-if="me === null" class="login-wrap">
     <div class="card login-box">
       <h1>🐦 {{ settings.site_title || '蜂鸟 Hummingbird' }}</h1>
       <p class="muted">{{ settings.site_slogan || '轻量多渠道消息推送网关' }}</p>
@@ -329,7 +329,7 @@ onMounted(async () => {
   </div>
 
   <!-- 主界面 -->
-  <div v-else class="layout">
+  <div v-else-if="me" class="layout">
     <aside class="sidebar">
       <div class="brand">🐦 {{ settings.site_title || '蜂鸟' }}<small>{{ settings.site_slogan }}</small></div>
       <div v-for="[id, icon, label] in NAV" :key="id"
@@ -554,6 +554,9 @@ onMounted(async () => {
       </template>
     </main>
   </div>
+
+  <!-- 会话探测中：刷新时不闪登录页 -->
+  <div v-else class="login-wrap"><div class="splash">🐦</div></div>
 
   <!-- 渠道弹窗 -->
   <div v-if="modal === 'channel'" class="overlay" @click.self="closeModal">
