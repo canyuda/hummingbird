@@ -49,7 +49,7 @@ jobs:
           - target: aarch64-unknown-linux-musl # 树莓派 64 位系统 / ARM 云主机
             os: ubuntu-latest
             zig: true
-          - target: armv7-unknown-linux-musl # 树莓派 32 位系统
+          - target: armv7-unknown-linux-musleabihf # 树莓派 32 位系统（armhf；纯 musl 目标无预编译 std）
             os: ubuntu-latest
             zig: true
           - target: x86_64-pc-windows-msvc # Windows

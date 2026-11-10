@@ -112,9 +112,9 @@ cargo build --release            # native binary at target/release/hummingbird
 cd web && npm install && npm run build && cd ..
 
 # Cross-compile for Raspberry Pi (requires: cargo install cargo-zigbuild && brew install zig)
-rustup target add aarch64-unknown-linux-musl armv7-unknown-linux-musl
-cargo zigbuild --release --target aarch64-unknown-linux-musl   # 64-bit systems
-cargo zigbuild --release --target armv7-unknown-linux-musl     # 32-bit systems
+rustup target add aarch64-unknown-linux-musl armv7-unknown-linux-musleabihf
+cargo zigbuild --release --target aarch64-unknown-linux-musl      # 64-bit systems
+cargo zigbuild --release --target armv7-unknown-linux-musleabihf  # 32-bit systems
 ```
 
 ## 🔐 Security

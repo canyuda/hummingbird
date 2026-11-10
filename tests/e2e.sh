@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 BIN=./target/debug/hummingbird
 PORT=18980
 HOOK_PORT=18981
+REL_PORT=18982   # release 内存测量专用（PORT+1 会与仍在运行的 webhook 接收器撞端口）
 BASE=http://127.0.0.1:$PORT
 TMP=$(mktemp -d /tmp/hb-e2e.XXXXXX)
 PASS=0; FAIL=0
@@ -165,16 +166,21 @@ say "内存占用（release 构建，设计目标：空闲 < 8MB）"
 cargo build --release 2>/dev/null
 # 口径说明：设计目标"<8MB"指常态空闲。首启会因 bootstrap 的 argon2(m=8MiB)
 # 一次性分配抬高 RSS（已声明的瞬时峰值），因此先首启建库、再二启测常态。
-HB_DB_PATH="$TMP/rel.db" HB_PORT=$((PORT+1)) ./target/release/hummingbird >"$TMP/rel1.log" 2>&1 &
+HB_DB_PATH="$TMP/rel.db" HB_PORT=$REL_PORT ./target/release/hummingbird >"$TMP/rel1.log" 2>&1 &
 REL_PID=$!
 sleep 1.5
 kill $REL_PID 2>/dev/null; sleep 0.5
-HB_DB_PATH="$TMP/rel.db" HB_PORT=$((PORT+1)) ./target/release/hummingbird >"$TMP/rel2.log" 2>&1 &
+HB_DB_PATH="$TMP/rel.db" HB_PORT=$REL_PORT ./target/release/hummingbird >"$TMP/rel2.log" 2>&1 &
 REL_PID=$!
 sleep 1.5
 RSS=$(ps -o rss= -p $REL_PID | tr -d ' ')
 echo "  release 常态空闲 RSS: ${RSS}KB（首启含 argon2 峰值，不作为常态指标）"
-[ -n "$RSS" ] && [ "$RSS" -lt 8192 ] && ok "常态 RSS < 8MB（${RSS}KB）" || bad "RSS 超标: ${RSS}KB"
+if [ -n "$RSS" ] && [ "$RSS" -lt 8192 ]; then
+  ok "常态 RSS < 8MB（${RSS}KB）"
+else
+  bad "RSS 超标: ${RSS}KB —— release 启动日志："
+  sed -n '1,15p' "$TMP/rel1.log" "$TMP/rel2.log" 2>/dev/null
+fi
 kill $REL_PID 2>/dev/null
 
 say "前端内嵌与 SPA 服务"
