@@ -61,11 +61,13 @@ tar -xzf "$TMP/$ASSET" -C "$TMP"
 # systemd 服务存在则先停（可能未在运行，容忍失败）
 SYSTEMD=0
 if systemctl cat hummingbird.service >/dev/null 2>&1; then SYSTEMD=1; fi
-[ "$SYSTEMD" -eq 1 ] && { systemctl stop hummingbird || true; }
+if [ "$SYSTEMD" -eq 1 ]; then systemctl stop hummingbird || true; fi
 
 echo "==> 替换 $INSTALL_DIR/hummingbird"
 mkdir -p "$INSTALL_DIR"
-[ -f "$INSTALL_DIR/hummingbird" ] && cp -p "$INSTALL_DIR/hummingbird" "$INSTALL_DIR/hummingbird.bak"
+if [ -f "$INSTALL_DIR/hummingbird" ]; then
+  cp -p "$INSTALL_DIR/hummingbird" "$INSTALL_DIR/hummingbird.bak"
+fi
 install -m 0755 "$TMP/hummingbird" "$INSTALL_DIR/hummingbird"
 
 if [ "$SYSTEMD" -eq 1 ]; then

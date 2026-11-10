@@ -108,8 +108,9 @@ jobs:
             tar -czf "hummingbird-$VERSION-${{ matrix.platform }}.tar.gz" -C stage hummingbird LICENSE README.md
           fi
           # 逐产物生成 .sha256（scripts/upgrade.sh 据此校验下载完整性）
+          # 注意：用 if 而非 [ ] && ——glob 未命中时 [ -e ] 返回 1 会触发 set -e
           for f in hummingbird-*.tar.gz hummingbird-*.zip; do
-            [ -e "$f" ] && sha256sum "$f" > "$f.sha256"
+            if [ -e "$f" ]; then sha256sum "$f" > "$f.sha256"; fi
           done
 
       - name: Upload artifact
