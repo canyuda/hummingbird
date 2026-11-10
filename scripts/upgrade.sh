@@ -6,15 +6,16 @@
 #   sudo bash upgrade.sh v0.1.1          # 升级到指定版本
 #
 # 环境变量：
-#   HB_INSTALL_DIR   安装目录（默认 /opt/hummingbird）
-#   HB_GH_PROXY      GitHub 下载代理前缀（如 https://ghproxy.net/，国内网络加速）
-#                    例：curl -fsSL .../upgrade.sh | sudo env HB_GH_PROXY=https://ghproxy.net/ bash
+#   HB_INSTALL_DIR          安装目录（默认 /opt/hummingbird）
+#   HB_GH_PROXY             GitHub 下载代理前缀（如 https://ghproxy.net/，国内网络加速）
+#                           例：curl -fsSL .../upgrade.sh | sudo env HB_GH_PROXY=https://ghproxy.net/ bash
+#   HB_ALLOW_NO_CHECKSUM=1  版本无 sha256 校验文件时仍继续（默认拒绝替换，防不可信来源）
 # 依赖：curl、tar、sha256sum；仅替换二进制，数据（hummingbird.db）不动。
 set -euo pipefail
 
 REPO="canyuda/hummingbird"
 INSTALL_DIR="${HB_INSTALL_DIR:-/opt/hummingbird}"
-GH="${HB_GH_PROXY}https://github.com"
+GH="${HB_GH_PROXY:-}https://github.com"
 
 [ "$(id -u)" -eq 0 ] || { echo "错误：需要 root 权限（sudo bash upgrade.sh）"; exit 1; }
 
@@ -47,12 +48,15 @@ trap 'rm -rf "$TMP"' EXIT
 echo "==> 下载 $URL_BASE/$ASSET"
 curl -fSL --retry 3 -o "$TMP/$ASSET" "$URL_BASE/$ASSET"
 
-# 校验文件是 v0.1.2 起随 Release 提供；旧版本缺失时警告跳过
+# 校验文件随 Release 提供；缺失默认拒绝替换（二进制不动），确需跳过时显式豁免
 if curl -fSL --retry 3 -o "$TMP/$ASSET.sha256" "$URL_BASE/$ASSET.sha256" 2>/dev/null; then
   echo "==> 校验 sha256"
   (cd "$TMP" && sha256sum -c "$ASSET.sha256")
+elif [ "${HB_ALLOW_NO_CHECKSUM:-0}" = "1" ]; then
+  echo "==> 警告：HB_ALLOW_NO_CHECKSUM=1，已跳过 sha256 校验" >&2
 else
-  echo "==> 警告：该版本未提供 sha256 校验文件，跳过校验" >&2
+  echo "错误：$VERSION 未提供 sha256 校验文件，已中止（二进制未动）。确需跳过：sudo env HB_ALLOW_NO_CHECKSUM=1 bash upgrade.sh" >&2
+  exit 1
 fi
 
 echo "==> 解压"

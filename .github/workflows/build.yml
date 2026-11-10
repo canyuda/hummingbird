@@ -122,12 +122,44 @@ jobs:
             hummingbird-*.zip
             hummingbird-*.sha256
 
-      # 仅打 tag v* 时把产物挂到 GitHub Release
-      - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+  # 汇总发布（仅 tag）：聚合五平台产物，生成 checksums.txt，
+  # 并把校验和写进 Release 正文（正文与附件同批生成，便于人工比对）
+  release:
+    name: Release
+    needs: [test, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Compose release notes
+        shell: bash
+        run: |
+          cd assets
+          sha256sum hummingbird-*.tar.gz hummingbird-*.zip > checksums.txt
+          {
+            echo '## 升级'
+            echo
+            echo '```bash'
+            echo 'curl -fsSL https://raw.githubusercontent.com/canyuda/hummingbird/main/scripts/upgrade.sh | sudo bash'
+            echo '```'
+            echo
+            echo '## 校验和（sha256）'
+            echo
+            echo '```'
+            cat checksums.txt
+            echo '```'
+          } > body.md
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: assets/body.md
           files: |
-            hummingbird-*.tar.gz
-            hummingbird-*.zip
-            hummingbird-*.sha256
+            assets/hummingbird-*.tar.gz
+            assets/hummingbird-*.zip
+            assets/hummingbird-*.sha256
+            assets/checksums.txt
