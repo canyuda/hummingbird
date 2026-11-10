@@ -35,7 +35,7 @@ import sys, http.server
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get('Content-Length', 0)); self.rfile.read(n)
-        self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
+        self.send_response(200); self.end_headers(); self.wfile.write(b'{"code":0,"ok":true}')
     def log_message(self, *a): pass
 http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
 PYEOF
