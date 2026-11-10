@@ -107,6 +107,10 @@ jobs:
           else
             tar -czf "hummingbird-$VERSION-${{ matrix.platform }}.tar.gz" -C stage hummingbird LICENSE README.md
           fi
+          # 逐产物生成 .sha256（scripts/upgrade.sh 据此校验下载完整性）
+          for f in hummingbird-*.tar.gz hummingbird-*.zip; do
+            [ -e "$f" ] && sha256sum "$f" > "$f.sha256"
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -115,6 +119,7 @@ jobs:
           path: |
             hummingbird-*.tar.gz
             hummingbird-*.zip
+            hummingbird-*.sha256
 
       # 仅打 tag v* 时把产物挂到 GitHub Release
       - name: Attach to GitHub Release
@@ -124,3 +129,4 @@ jobs:
           files: |
             hummingbird-*.tar.gz
             hummingbird-*.zip
+            hummingbird-*.sha256
