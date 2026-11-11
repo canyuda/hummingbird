@@ -23,15 +23,15 @@
 ![概览](docs/screenshots/03-概览.png)
 
 <details>
-<summary>更多截图（渠道 / 渠道编辑弹窗 / 渠道测试 / 模板 / 任务 / 任务测试弹窗 / 日志 / 设置）</summary>
+<summary>更多截图（首登改密 / 渠道 / 渠道编辑弹窗 / 渠道测试 / 模板 / 任务 / 任务测试弹窗 / 日志 / 设置）</summary>
 
 | | |
 |---|---|
-| ![渠道列表](docs/screenshots/04-渠道列表.png) | ![渠道测试](docs/screenshots/05-渠道测试toast.png) |
-| ![渠道编辑弹窗](docs/screenshots/11-渠道编辑弹窗.png) | ![模板页](docs/screenshots/06-模板页.png) |
-| ![任务页](docs/screenshots/07-任务页.png) | ![任务 token 弹窗](docs/screenshots/08-任务token弹窗.png) |
-| ![任务测试弹窗](docs/screenshots/12-任务测试弹窗.png) | ![推送日志](docs/screenshots/09-推送日志.png) |
-| ![设置页](docs/screenshots/10-设置页.png) | |
+| ![首登强制改密](docs/screenshots/02-首登强制改密弹窗.png) | ![渠道列表](docs/screenshots/04-渠道列表.png) |
+| ![渠道测试](docs/screenshots/05-渠道测试toast.png) | ![渠道编辑弹窗](docs/screenshots/11-渠道编辑弹窗.png) |
+| ![模板页](docs/screenshots/06-模板页.png) | ![任务页](docs/screenshots/07-任务页.png) |
+| ![任务 token 弹窗](docs/screenshots/08-任务token弹窗.png) | ![任务测试弹窗](docs/screenshots/12-任务测试弹窗.png) |
+| ![推送日志](docs/screenshots/09-推送日志.png) | ![设置页](docs/screenshots/10-设置页.png) | |
 
 </details>
 
