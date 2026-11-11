@@ -23,14 +23,14 @@ Hummingbird is a self-hosted notification gateway: a **3 MB** single binary (Web
 ![Overview](docs/screenshots/03-概览.png)
 
 <details>
-<summary>More screenshots (login / password change / channels / templates / tasks / logs / settings)</summary>
+<summary>More screenshots (channels / channel modal / channel test / templates / tasks / task test modal / logs / settings)</summary>
 
 | | |
 |---|---|
-| ![Login](docs/screenshots/01-登录页.png) | ![Forced password change](docs/screenshots/02-首登强制改密弹窗.png) |
 | ![Channels](docs/screenshots/04-渠道列表.png) | ![Channel test](docs/screenshots/05-渠道测试toast.png) |
-| ![Templates](docs/screenshots/06-模板页.png) | ![Tasks](docs/screenshots/07-任务页.png) |
-| ![Task token](docs/screenshots/08-任务token弹窗.png) | ![Push logs](docs/screenshots/09-推送日志.png) |
+| ![Channel modal](docs/screenshots/11-渠道编辑弹窗.png) | ![Templates](docs/screenshots/06-模板页.png) |
+| ![Tasks](docs/screenshots/07-任务页.png) | ![Task token](docs/screenshots/08-任务token弹窗.png) |
+| ![Task test modal](docs/screenshots/12-任务测试弹窗.png) | ![Push logs](docs/screenshots/09-推送日志.png) |
 | ![Settings](docs/screenshots/10-设置页.png) | |
 
 </details>
