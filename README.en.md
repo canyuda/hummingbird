@@ -105,6 +105,34 @@ HB_DB_PATH=/data/hb.db HB_PORT=9000 ./hummingbird   # run in foreground
 
 Push logs are pruned automatically (lazy), no maintenance needed.
 
+## 🔄 Upgrade / Backup / Uninstall
+
+**Upgrade** — one command on the Pi (detects the architecture → downloads → verifies sha256 → backs up the old binary as `hummingbird.bak` → replaces and restarts the service; data untouched):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/canyuda/hummingbird/main/scripts/upgrade.sh | sudo bash
+# Pin a version: sudo bash upgrade.sh v0.1.4
+# Faster in CN: curl -fsSL … | sudo env HB_GH_PROXY=https://ghproxy.net/ bash
+```
+
+**Backup** — every setting and log lives in a single SQLite file; copy it away (stop the service first):
+
+```bash
+sudo systemctl stop hummingbird
+sudo cp /opt/hummingbird/hummingbird.db ~/backup/
+sudo systemctl start hummingbird
+```
+
+**Uninstall**:
+
+```bash
+sudo systemctl disable --now hummingbird
+sudo rm /etc/systemd/system/hummingbird.service && sudo systemctl daemon-reload
+sudo rm -rf /opt/hummingbird     # removes data too — copy the .db out first if you want to keep it
+```
+
+See the [deployment guide](docs/自研消息网关部署指南.md) and [runtime defaults & autostart](docs/自研消息网关运行时默认与自启动.md) (Chinese) for full operations coverage.
+
 ## 📦 Build & Cross-Compilation
 
 ```bash

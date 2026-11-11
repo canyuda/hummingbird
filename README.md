@@ -105,6 +105,34 @@ HB_DB_PATH=/data/hb.db HB_PORT=9000 ./hummingbird   # 前台运行
 
 推送日志自动清理（懒触发），无需额外维护。
 
+## 🔄 升级 / 备份 / 卸载
+
+**升级**——树莓派上一条命令（自动识别架构 → 下载 → sha256 校验 → 旧版备份为 `hummingbird.bak` → 替换并重启服务，数据不动）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/canyuda/hummingbird/main/scripts/upgrade.sh | sudo bash
+# 指定版本：sudo bash upgrade.sh v0.1.4
+# 国内加速：curl -fsSL … | sudo env HB_GH_PROXY=https://ghproxy.net/ bash
+```
+
+**备份**——所有配置与日志都在单个 SQLite 文件里，拷走即备份（建议先停服务）：
+
+```bash
+sudo systemctl stop hummingbird
+sudo cp /opt/hummingbird/hummingbird.db ~/backup/
+sudo systemctl start hummingbird
+```
+
+**卸载**：
+
+```bash
+sudo systemctl disable --now hummingbird
+sudo rm /etc/systemd/system/hummingbird.service && sudo systemctl daemon-reload
+sudo rm -rf /opt/hummingbird     # 数据也一并删除，想保留先拷走 .db
+```
+
+完整运维细节（恢复、故障排查、systemd unit 模板）见[部署指南](docs/自研消息网关部署指南.md)与[运行时默认与自启动](docs/自研消息网关运行时默认与自启动.md)。
+
 ## 📦 构建与交叉编译
 
 ```bash
