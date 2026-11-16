@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     token_hash         TEXT NOT NULL UNIQUE,
     token_prefix       TEXT NOT NULL,
     token_last_used_at TEXT,
+    -- 失败重试配置快照（openspec add-push-retry；默认值须与 push::RETRY_DEFAULT_JSON 一致）
+    retry_json         TEXT NOT NULL DEFAULT '{"enabled":true,"max":3,"mode":"sync","base_ms":1000}',
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, name)
@@ -80,9 +82,29 @@ CREATE TABLE IF NOT EXISTS push_logs (
     via_proxy     INTEGER NOT NULL DEFAULT 0,
     error         TEXT,
     cost_ms       INTEGER NOT NULL DEFAULT 0,
+    retries       INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_push_logs_user_time ON push_logs (user_id, created_at DESC);
+
+-- 异步重试队列（openspec add-push-retry 设计 §5.2）：存完整渲染文本（push_logs 只有
+-- 80 字 brief 不够重发）；max_retries/base_ms 为入队时的任务配置快照。
+-- channel_id 无外键：渠道可中途被删，drain 时判终态失败而非阻塞清理。
+CREATE TABLE IF NOT EXISTS retry_queue (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id       INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    template_id   INTEGER,
+    channel_id    INTEGER,
+    title         TEXT NOT NULL,
+    body          TEXT NOT NULL,
+    attempts      INTEGER NOT NULL,
+    max_retries   INTEGER NOT NULL,
+    base_ms       INTEGER NOT NULL,
+    next_retry_at TEXT NOT NULL,
+    last_error    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_retry_queue_due ON retry_queue (next_retry_at);
 
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
@@ -100,6 +122,7 @@ pub fn init(db_path: &str) -> Db {
     conn.pragma_update(None, "mmap_size", 67_108_864).expect("mmap_size"); // 64MB mmap：页可被系统回收，不占堆
     conn.pragma_update(None, "foreign_keys", "ON").expect("foreign_keys");
     conn.execute_batch(SCHEMA).expect("apply schema");
+    migrate_columns(&conn);
 
     let user_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
@@ -122,4 +145,30 @@ pub fn init(db_path: &str) -> Db {
         println!("=====================================================");
     }
     Db(Mutex::new(conn))
+}
+
+/// 存量库补列：CREATE TABLE IF NOT EXISTS 不会给已有表加列，需显式 ALTER。
+/// PRAGMA 表名/列名为编译期常量（PRAGMA 无法参数化），不违反参数化纪律。
+fn migrate_columns(conn: &Connection) {
+    let has_col = |table: &str, col: &str| -> bool {
+        conn.prepare(&format!("PRAGMA table_info({table})"))
+            .and_then(|mut stmt| {
+                let names: Vec<String> =
+                    stmt.query_map([], |r| r.get::<_, String>(1))?.flatten().collect();
+                Ok(names.iter().any(|n| n == col))
+            })
+            .unwrap_or(false)
+    };
+    if !has_col("tasks", "retry_json") {
+        // 默认值与 SCHEMA 内 tasks.retry_json 一致
+        conn.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN retry_json TEXT NOT NULL
+             DEFAULT '{\"enabled\":true,\"max\":3,\"mode\":\"sync\",\"base_ms\":1000}'",
+        )
+        .expect("migrate tasks.retry_json");
+    }
+    if !has_col("push_logs", "retries") {
+        conn.execute_batch("ALTER TABLE push_logs ADD COLUMN retries INTEGER NOT NULL DEFAULT 0")
+            .expect("migrate push_logs.retries");
+    }
 }

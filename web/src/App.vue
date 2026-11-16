@@ -188,17 +188,22 @@ const delTemplate = (t) => askConfirm('删除模板',
 
 /* ---------------- 任务 ---------------- */
 const tasks = ref([])
-const taskForm = reactive({ id: null, name: '', bindings: [] })
+const taskForm = reactive({ id: null, name: '', bindings: [], retry: { enabled: true, max: 3, mode: 'sync', base_ms: 1000 } })
+const RETRY_DEFAULT = { enabled: true, max: 3, mode: 'sync', base_ms: 1000 } // 与后端 push::RETRY_DEFAULT_JSON 一致
 const newTaskToken = ref('')
 const loadTasks = () => api('GET', '/api/tasks').then((r) => (tasks.value = r.tasks))
 const openTaskNew = () => {
-  Object.assign(taskForm, { id: null, name: '', bindings: [{ template_id: '', channel_ids: [] }] })
+  Object.assign(taskForm, {
+    id: null, name: '', bindings: [{ template_id: '', channel_ids: [] }],
+    retry: { ...RETRY_DEFAULT },
+  })
   modal.value = 'task'
 }
 const editTask = (t) => {
   Object.assign(taskForm, {
     id: t.id, name: t.name,
     bindings: t.bindings.map((b) => ({ template_id: b.template_id, channel_ids: [...b.channel_ids] })),
+    retry: { ...RETRY_DEFAULT, ...(t.retry || {}) }, // 旧任务无 retry 时取默认
   })
   modal.value = 'task'
 }
@@ -213,12 +218,13 @@ const saveTask = async () => {
     .filter((b) => b.template_id && b.channel_ids.length)
     .map((b) => ({ template_id: Number(b.template_id), channel_ids: b.channel_ids.map(Number) }))
   if (!bindings.length) return notify('至少需要一条有效绑定（模板 + 渠道）')
+  const retry = { ...taskForm.retry, max: Number(taskForm.retry.max), base_ms: Number(taskForm.retry.base_ms) }
   try {
     if (taskForm.id) {
-      await api('PUT', `/api/tasks/${taskForm.id}`, { name: taskForm.name, bindings })
+      await api('PUT', `/api/tasks/${taskForm.id}`, { name: taskForm.name, bindings, retry })
       notify('任务已更新')
     } else {
-      const r = await api('POST', '/api/tasks', { name: taskForm.name, bindings })
+      const r = await api('POST', '/api/tasks', { name: taskForm.name, bindings, retry })
       newTaskToken.value = r.token
     }
     modal.value = null; await loadTasks()
@@ -374,6 +380,7 @@ onMounted(async () => {
           <div class="stat"><span class="muted">今日失败</span><b style="color:var(--danger)">{{ overview.today_failed ?? '—' }}</b></div>
           <div class="stat"><span class="muted">渠道数</span><b>{{ overview.channels ?? '—' }}</b></div>
           <div class="stat"><span class="muted">任务数</span><b>{{ overview.tasks ?? '—' }}</b></div>
+          <div class="stat" v-if="overview.pending_retries"><span class="muted">待重试</span><b style="color:var(--theme)">{{ overview.pending_retries }}</b></div>
         </div>
 
         <div class="chart-grid">
@@ -548,7 +555,10 @@ onMounted(async () => {
                 <td>{{ l.task }}</td>
                 <td>{{ l.channel }}</td>
                 <td>{{ l.title }}</td>
-                <td><span class="tag" v-if="l.status === 'ok'">ok</span><span class="tag red" v-else>failed</span></td>
+                <td>
+                  <span class="tag" v-if="l.status === 'ok'">ok</span><span class="tag red" v-else>failed</span>
+                  <span v-if="l.retries" class="tag gray" style="margin-left:4px" :title="'共尝试 ' + (l.retries + 1) + ' 次后终态'">重试{{ l.retries }}次</span>
+                </td>
                 <td>{{ l.cost_ms }}ms</td>
                 <td class="muted">{{ l.error }}</td>
               </tr>
@@ -681,6 +691,30 @@ onMounted(async () => {
             </div>
           </div>
           <p v-if="!taskForm.bindings.length" class="muted">至少一条绑定：选模板 → 点选渠道。</p>
+        </div>
+        <!-- 失败重试（指数退避，任务级配置；openspec add-push-retry） -->
+        <div class="binding" style="margin-top:14px">
+          <div class="spread">
+            <span class="muted">失败重试（指数退避：1s / 2s / 4s…）</span>
+            <label class="switch"><input type="checkbox" v-model="taskForm.retry.enabled"><i></i></label>
+          </div>
+          <div v-if="taskForm.retry.enabled" class="form-grid" style="margin-top:10px">
+            <label class="field">重试次数（0-10，不含首发）
+              <input type="number" min="0" max="10" v-model.number="taskForm.retry.max" />
+            </label>
+            <label class="field">重试方式
+              <select v-model="taskForm.retry.mode">
+                <option value="sync">同步 —— 响应等待最终结果</option>
+                <option value="async">异步 —— 落库后台重试</option>
+              </select>
+            </label>
+          </div>
+          <details v-if="taskForm.retry.enabled" style="margin-top:8px">
+            <summary class="muted" style="cursor:pointer;font-size:12px">高级</summary>
+            <label class="field" style="margin-top:8px">退避基数（毫秒，100-60000）
+              <input type="number" min="100" max="60000" step="100" v-model.number="taskForm.retry.base_ms" />
+            </label>
+          </details>
         </div>
       </div>
       <div class="modal-foot">

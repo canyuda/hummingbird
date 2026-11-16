@@ -29,12 +29,19 @@ assert_contains() {
 say "构建 debug 二进制"
 cargo build 2>/dev/null || { echo "build failed"; exit 1; }
 
-say "启动本地 webhook 接收器（模拟外部服务，全部返回 200）"
+say "启动本地 webhook 接收器（默认 200；/flaky<N> 路径前 N 次 500，用于重试场景）"
 python3 - "$HOOK_PORT" >"$TMP/hook.log" 2>&1 <<'PYEOF' &
-import sys, http.server
+import re, sys, http.server
+counts = {}
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get('Content-Length', 0)); self.rfile.read(n)
+        m = re.match(r'^/flaky(\d+)', self.path)
+        if m:
+            counts[self.path] = counts.get(self.path, 0) + 1
+            if counts[self.path] <= int(m.group(1)):
+                self.send_response(500); self.end_headers(); self.wfile.write(b'{"code":1}')
+                return
         self.send_response(200); self.end_headers(); self.wfile.write(b'{"code":0,"ok":true}')
     def log_message(self, *a): pass
 http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
@@ -182,6 +189,57 @@ R=$(J $BASE/api/overview)
 assert_contains "$R" '"today_total":' "概览统计返回"
 assert_contains "$R" '"days7"' "概览含近7天逐日数据"
 assert_contains "$R" '"channels7"' "概览含渠道分布数据"
+
+say "推送重试：参数边界 fail fast"
+R=$(J -X POST $BASE/api/tasks -d '{"name":"越界任务","retry":{"max":11},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$CH_ID"']}]}')
+assert_contains "$R" 'retry.max must be 0..=10' "重试次数越界被拒（400）"
+R=$(J -X POST $BASE/api/tasks -d '{"name":"越界任务2","retry":{"base_ms":50},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$CH_ID"']}]}')
+assert_contains "$R" 'retry.base_ms must be 100..=60000' "退避基数越界被拒（400）"
+R=$(J $BASE/api/tasks)
+assert_contains "$R" '"mode":"sync"' "任务列表回传默认重试配置"
+
+say "推送重试（同步：flaky 渠道前 2 次失败后成功）"
+R=$(J -X POST $BASE/api/channels -d '{"type":"webhook","name":"Flaky钩子","config":{"url":"http://127.0.0.1:'"$HOOK_PORT"'/flaky2"}}')
+FLK2=$(echo "$R" | grep -o '[0-9]*' | head -1)
+R=$(J -X POST $BASE/api/tasks -d '{"name":"同步重试任务","retry":{"enabled":true,"max":3,"mode":"sync","base_ms":100},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$FLK2"']}]}')
+assert_contains "$R" '"token":"hb' "重试任务创建"
+RT_SYNC=$(echo "$R" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+T0=$(python3 -c 'import time;print(int(time.time()*1000))')
+R=$(curl -s -X POST $BASE/api/push -H "Authorization: Bearer $RT_SYNC" -d '{"template":"巡检","variables":{"host":"retry-sync"}}')
+T1=$(python3 -c 'import time;print(int(time.time()*1000))')
+assert_contains "$R" '"status":"ok"' "同步重试后成功"
+assert_contains "$R" '"retries":2' "重试次数 = 2"
+ELAPSED=$((T1 - T0))
+[ "$ELAPSED" -ge 300 ] && ok "指数退避生效（耗时 ${ELAPSED}ms ≥ 100+200ms）" || bad "退避耗时异常（${ELAPSED}ms < 300ms）"
+
+say "推送重试（同步：耗尽后终态 failed）"
+R=$(J -X POST $BASE/api/channels -d '{"type":"webhook","name":"永久失败钩子","config":{"url":"http://127.0.0.1:'"$HOOK_PORT"'/flaky99"}}')
+FLK99=$(echo "$R" | grep -o '[0-9]*' | head -1)
+R=$(J -X POST $BASE/api/tasks -d '{"name":"耗尽任务","retry":{"max":2,"base_ms":100},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$FLK99"']}]}')
+RT_EX=$(echo "$R" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+R=$(curl -s -X POST $BASE/api/push -H "Authorization: Bearer $RT_EX" -d '{"template":"巡检","variables":{"host":"retry-ex"}}')
+assert_contains "$R" '"status":"failed"' "重试耗尽后终态 failed"
+assert_contains "$R" '"retries":2' "重试次数 = 2（耗尽）"
+
+say "推送重试（异步：入队 + 懒触发终态入日志）"
+R=$(J -X POST $BASE/api/channels -d '{"type":"webhook","name":"Flaky一次钩子","config":{"url":"http://127.0.0.1:'"$HOOK_PORT"'/flaky1"}}')
+FLK1=$(echo "$R" | grep -o '[0-9]*' | head -1)
+R=$(J -X POST $BASE/api/tasks -d '{"name":"异步重试任务","retry":{"mode":"async","max":3,"base_ms":200},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$FLK1"']}]}')
+RT_ASYNC=$(echo "$R" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+R=$(curl -s -X POST $BASE/api/push -H "Authorization: Bearer $RT_ASYNC" -d '{"template":"巡检","variables":{"host":"retry-async"}}')
+assert_contains "$R" '"status":"retrying"' "异步入队：首响 retrying"
+R=$(J $BASE/api/overview)
+assert_contains "$R" '"pending_retries":1' "概览含待重试计数"
+# 轮询 messages（每次请求兼作 drain 触发点），直到终态入日志（退避 200ms 后到期）
+ASYNC_OK=0
+for i in $(seq 1 30); do
+  R=$(J "$BASE/api/messages")
+  if echo "$R" | grep -q '"retries":1'; then ASYNC_OK=1; break; fi
+  sleep 0.3
+done
+[ "$ASYNC_OK" = "1" ] && ok "异步重试终态入日志（retries:1，成功不重复计数）" || bad "异步终态未出现（最后响应：$R）"
+R=$(J $BASE/api/overview)
+assert_contains "$R" '"pending_retries":0' "终态后待重试清零"
 
 say "设置（站点样式 + 保留天数）"
 R=$(J -X PUT $BASE/api/settings -d '{"site_title":"我的蜂鸟","theme_color":"#ff0000"}')

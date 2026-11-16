@@ -23,15 +23,16 @@ Hummingbird is a self-hosted notification gateway: a **3 MB** single binary (Web
 ![Overview](docs/screenshots/03-概览.png)
 
 <details>
-<summary>More screenshots (password change / channels / channel modal / channel test / templates / tasks / task test modal / logs / settings)</summary>
+<summary>More screenshots (password change / channels / channel modal / channel test / templates / tasks / task edit modal with retry / task test modal / logs / settings)</summary>
 
 | | |
 |---|---|
 | ![Forced password change](docs/screenshots/02-首登强制改密弹窗.png) | ![Channels](docs/screenshots/04-渠道列表.png) |
 | ![Channel test](docs/screenshots/05-渠道测试toast.png) | ![Channel modal](docs/screenshots/11-渠道编辑弹窗.png) |
 | ![Templates](docs/screenshots/06-模板页.png) | ![Tasks](docs/screenshots/07-任务页.png) |
-| ![Task token](docs/screenshots/08-任务token弹窗.png) | ![Task test modal](docs/screenshots/12-任务测试弹窗.png) |
-| ![Push logs](docs/screenshots/09-推送日志.png) | ![Settings](docs/screenshots/10-设置页.png) | |
+| ![Task edit modal with retry](docs/screenshots/13-任务编辑弹窗-失败重试.png) | ![Task token](docs/screenshots/08-任务token弹窗.png) |
+| ![Task test modal](docs/screenshots/12-任务测试弹窗.png) | ![Push logs](docs/screenshots/09-推送日志.png) |
+| ![Settings](docs/screenshots/10-设置页.png) | |
 
 </details>
 
@@ -45,8 +46,8 @@ Hummingbird is a self-hosted notification gateway: a **3 MB** single binary (Web
 |---|---|---|
 | Idle RSS | < 8 MB | **7.5 MB** |
 | Binary size (frontend embedded) | < 10 MB | **3.0 MB** |
-| Unit tests | — | 12/12 passed |
-| End-to-end tests | — | 44/44 passed |
+| Unit tests | — | 20/20 passed |
+| End-to-end tests | — | 65/65 passed |
 
 ## 📮 Supported Channels
 
@@ -90,6 +91,18 @@ curl "http://<host>:8080/push/<task-token>?template=inspection&host=pi&status=ok
 ```
 
 > **Task model**: a task = a token (1:1) plus "template → channel group" bindings. Callers cannot choose channels, so a leaked token has the smallest possible blast radius.
+
+## 🔁 Automatic Retry on Push Failure
+
+Configured per task in the web console (task form, editable any time): **retry count** (default 3, excluding the first attempt, 0-10), **mode** (sync/async), and **backoff base** (default 1000ms, exponential 1s/2s/4s…).
+
+- **Sync** (default): exponential-backoff retries inside the channel thread; the HTTP response carries the final outcome and the `retries` count. Recommended for alerts — the caller learns the real delivery result. Worst-case per-channel latency ≈ 4 × channel timeout + 7s backoff, so keep caller timeouts generous.
+- **Async**: a failed first attempt is queued immediately (response `status: "retrying"`); retries are drained lazily by any subsequent push/log/overview request, and only the final outcome is logged (no double counting). Queue entries older than 1 hour expire unsent. Suited for high-volume callers that tolerate minute-level delay.
+
+Two semantics to know:
+
+1. **At-least-once**: if a request times out but the receiver actually got it, a retry produces a duplicate message (usually acceptable for alerts).
+2. Deterministic failures (channel rate limits, bad config) still fail honestly after retries — retry never masks real errors.
 
 ## ⚙️ Configuration
 

@@ -302,7 +302,7 @@ pub fn template_defaults(vars_json: &str) -> Value {
 pub fn tasks_list(state: &AppState) -> Resp {
     let conn = state.db.0.lock().unwrap();
     let mut stmt = conn
-        .prepare("SELECT id, name, enabled, token_prefix, token_last_used_at, created_at, updated_at FROM tasks ORDER BY id")
+        .prepare("SELECT id, name, enabled, token_prefix, token_last_used_at, created_at, updated_at, retry_json FROM tasks ORDER BY id")
         .unwrap();
     let mut tasks: Vec<Value> = stmt
         .query_map([], |r| {
@@ -314,6 +314,8 @@ pub fn tasks_list(state: &AppState) -> Resp {
                 "token_last_used_at": r.get::<_, Option<String>>(4)?,
                 "created_at": r.get::<_, String>(5)?,
                 "updated_at": r.get::<_, String>(6)?,
+                // 重试配置（坏数据回退空对象，前端按默认合并）
+                "retry": serde_json::from_str::<Value>(&r.get::<_, String>(7)?).unwrap_or(json!({})),
             }))
         })
         .unwrap()
@@ -378,14 +380,24 @@ pub fn tasks_create(state: &AppState, ctx: &ReqCtx) -> Resp {
         }
     }
 
+    // 重试配置（可选；未传取默认；越界 fail fast 400）
+    let retry_json = match ctx.body.get("retry") {
+        Some(v) => match crate::push::validate_retry(v) {
+            Ok(s) => s,
+            Err(e) => return err(400, &e),
+        },
+        None => crate::push::RETRY_DEFAULT_JSON.to_string(),
+    };
+
     let token = crate::auth::gen_task_token(); // 明文只在本次响应里出现一次
     let token_hash = crate::auth::sha256_hex(&token);
     let token_prefix = token.chars().take(8).collect::<String>();
     {
         let conn = state.db.0.lock().unwrap();
         match conn.execute(
-            "INSERT INTO tasks (user_id, name, token_hash, token_prefix) VALUES (1, ?1, ?2, ?3)",
-            params![name, token_hash, token_prefix],
+            "INSERT INTO tasks (user_id, name, token_hash, token_prefix, retry_json)
+             VALUES (1, ?1, ?2, ?3, ?4)",
+            params![name, token_hash, token_prefix, retry_json],
         ) {
             Ok(_) => {}
             Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == rusqlite::ErrorCode::ConstraintViolation => {
@@ -422,6 +434,18 @@ pub fn tasks_update(state: &AppState, id: i64, ctx: &ReqCtx) -> Resp {
         conn.execute(
             "UPDATE tasks SET enabled = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![enabled as i64, id],
+        )
+        .unwrap();
+    }
+    // 重试配置整体替换（越界 fail fast 400）
+    if let Some(v) = ctx.body.get("retry") {
+        let retry_json = match crate::push::validate_retry(v) {
+            Ok(s) => s,
+            Err(e) => return err(400, &e),
+        };
+        conn.execute(
+            "UPDATE tasks SET retry_json = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![retry_json, id],
         )
         .unwrap();
     }
@@ -588,8 +612,10 @@ pub fn settings_put(state: &AppState, ctx: &ReqCtx) -> Resp {
     (200, json!({"ok": true}), None)
 }
 
-/// 推送日志：分页（每页 50），支持 task/status/channel 过滤（设计 §5）
-pub fn messages_list(state: &AppState, ctx: &ReqCtx) -> Resp {
+/// 推送日志：分页（每页 50），支持 task/status/channel 过滤（设计 §5）；
+/// 兼作异步重试 drain 触发点（提案 §5.3）
+pub fn messages_list(state: &std::sync::Arc<AppState>, ctx: &ReqCtx) -> Resp {
+    crate::push::trigger_drain(state);
     // 先收集全部键值对再扫描（find 会消费迭代器，不能边找边用）
     let pairs: Vec<(String, String)> = form_urlencoded::parse(ctx.query.as_bytes())
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
@@ -602,7 +628,7 @@ pub fn messages_list(state: &AppState, ctx: &ReqCtx) -> Resp {
     let mut sql = String::from(
         "SELECT p.id, p.batch_id, p.title, p.content_brief, p.status, p.via_proxy, p.error,
                 p.cost_ms, p.created_at, p.task_id, p.template_id, p.channel_id,
-                t.name, c.name
+                t.name, c.name, p.retries
          FROM push_logs p
          LEFT JOIN tasks t ON t.id = p.task_id
          LEFT JOIN channels c ON c.id = p.channel_id WHERE 1=1",
@@ -658,6 +684,7 @@ pub fn messages_list(state: &AppState, ctx: &ReqCtx) -> Resp {
                 "task": r.get::<_, Option<String>>(12)?,
                 "template_id": r.get::<_, Option<i64>>(10)?,
                 "channel": r.get::<_, Option<String>>(13)?,
+                "retries": r.get::<_, i64>(14)?,
             }))
         })
         .unwrap()
@@ -667,8 +694,10 @@ pub fn messages_list(state: &AppState, ctx: &ReqCtx) -> Resp {
     (200, json!({"messages": rows, "total": total, "page": page}), None)
 }
 
-/// 概览统计（前端仪表盘用）：今日总数 / 成功 / 失败 + 近 7 天逐日量与渠道分布（UTC 口径）
-pub fn overview(state: &AppState) -> Resp {
+/// 概览统计（前端仪表盘用）：今日总数 / 成功 / 失败 + 近 7 天逐日量与渠道分布（UTC 口径）；
+/// 含异步重试待办计数，兼作 drain 触发点（提案 §5.3）
+pub fn overview(state: &std::sync::Arc<AppState>) -> Resp {
+    crate::push::trigger_drain(state);
     let conn = state.db.0.lock().unwrap();
     let (total, ok): (i64, i64) = conn
         .query_row(
@@ -680,6 +709,8 @@ pub fn overview(state: &AppState) -> Resp {
         .unwrap();
     let channels: i64 = conn.query_row("SELECT COUNT(*) FROM channels", [], |r| r.get(0)).unwrap();
     let tasks: i64 = conn.query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0)).unwrap();
+    let pending_retries: i64 =
+        conn.query_row("SELECT COUNT(*) FROM retry_queue", [], |r| r.get(0)).unwrap();
 
     // 近 7 天逐日（含今日）；时间统一 UTC（chrono 仅 UTC 的设计口径）
     let mut days7 = Vec::new();
@@ -723,5 +754,6 @@ pub fn overview(state: &AppState) -> Resp {
     }
 
     (200, json!({"today_total": total, "today_ok": ok, "today_failed": total - ok,
-                 "channels": channels, "tasks": tasks, "days7": days7, "channels7": channels7}), None)
+                 "channels": channels, "tasks": tasks, "days7": days7, "channels7": channels7,
+                 "pending_retries": pending_retries}), None)
 }
