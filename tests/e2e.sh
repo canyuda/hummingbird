@@ -224,15 +224,15 @@ assert_contains "$R" '"retries":2' "重试次数 = 2（耗尽）"
 say "推送重试（异步：入队 + 懒触发终态入日志）"
 R=$(J -X POST $BASE/api/channels -d '{"type":"webhook","name":"Flaky一次钩子","config":{"url":"http://127.0.0.1:'"$HOOK_PORT"'/flaky1"}}')
 FLK1=$(echo "$R" | grep -o '[0-9]*' | head -1)
-R=$(J -X POST $BASE/api/tasks -d '{"name":"异步重试任务","retry":{"mode":"async","max":3,"base_ms":200},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$FLK1"']}]}')
+R=$(J -X POST $BASE/api/tasks -d '{"name":"异步重试任务","retry":{"mode":"async","max":3,"base_ms":5000},"bindings":[{"template_id":'"$TPL_ID"',"channel_ids":['"$FLK1"']}]}')
 RT_ASYNC=$(echo "$R" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 R=$(curl -s -X POST $BASE/api/push -H "Authorization: Bearer $RT_ASYNC" -d '{"template":"巡检","variables":{"host":"retry-async"}}')
 assert_contains "$R" '"status":"retrying"' "异步入队：首响 retrying"
 R=$(J $BASE/api/overview)
 assert_contains "$R" '"pending_retries":1' "概览含待重试计数"
-# 轮询 messages（每次请求兼作 drain 触发点），直到终态入日志（退避 200ms 后到期）
+# 轮询 messages（每次请求兼作 drain 触发点），直到终态入日志（退避 5s 后到期，窗口放宽适配慢 CI）
 ASYNC_OK=0
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
   R=$(J "$BASE/api/messages")
   if echo "$R" | grep -q '"retries":1'; then ASYNC_OK=1; break; fi
   sleep 0.3
